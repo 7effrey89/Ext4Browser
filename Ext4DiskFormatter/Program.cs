@@ -102,6 +102,23 @@ internal class Program
             Console.WriteLine($"Label truncated to: {label}");
         }
 
+        // ── Optional dummy text file ─────────────────────────────────────
+        Console.Write("Create a dummy text file after formatting? (y/N): ");
+        bool createDummyFile = string.Equals(Console.ReadLine()?.Trim(), "y", StringComparison.OrdinalIgnoreCase);
+
+        string? dummyFileName = null;
+        if (createDummyFile)
+        {
+            Console.Write("Dummy file name (default: dummy.txt): ");
+            if (!TryNormalizeDummyFileName(Console.ReadLine(), out dummyFileName, out string? dummyFileError))
+            {
+                WriteError(dummyFileError ?? "Invalid dummy file name.");
+                return ExitCode.InvalidSelection;
+            }
+
+            Console.WriteLine($"Dummy file will be created as: /{dummyFileName}");
+        }
+
         // ── Format ───────────────────────────────────────────────────────
         Console.WriteLine();
         Console.WriteLine($"Formatting PhysicalDrive{selected.DiskNumber} as ext4...");
@@ -117,7 +134,7 @@ internal class Program
 
         try
         {
-            formatter.Format(selected.DiskNumber, label);
+            formatter.Format(selected.DiskNumber, label, dummyFileName);
         }
         catch (InvalidOperationException ex)
         {
@@ -145,6 +162,10 @@ internal class Program
         Console.WriteLine("✔  Formatting completed successfully!");
         Console.ResetColor();
         Console.WriteLine($"   PhysicalDrive{selected.DiskNumber} ({selected.Model}) is now formatted as ext4.");
+        if (createDummyFile)
+        {
+            Console.WriteLine($"   Dummy file created at /{dummyFileName}.");
+        }
         Console.WriteLine();
 
         return ExitCode.Success;
@@ -193,6 +214,39 @@ internal class Program
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine(message);
         Console.ResetColor();
+    }
+
+    private static bool TryNormalizeDummyFileName(string? fileName, out string normalized, out string? error)
+    {
+        error = null;
+        normalized = (fileName ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            normalized = "dummy.txt";
+            return true;
+        }
+
+        if (normalized.Contains('/') || normalized.Contains('\\'))
+        {
+            error = "Dummy file name must not include folders or path separators.";
+            return false;
+        }
+
+        if (normalized.Contains('\0'))
+        {
+            error = "Dummy file name contains an invalid null character.";
+            return false;
+        }
+
+        if (!string.Equals(Path.GetExtension(normalized), ".txt", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = Path.HasExtension(normalized)
+                ? Path.ChangeExtension(normalized, ".txt")
+                : normalized + ".txt";
+        }
+
+        return true;
     }
 
     private static bool IsAdministrator()

@@ -37,13 +37,14 @@ public class Ext4Formatter
     /// </summary>
     /// <param name="diskNumber">Windows physical disk index (0-based).</param>
     /// <param name="label">Optional ext4 volume label (max 16 characters).</param>
+    /// <param name="dummyFileName">Optional dummy text file name to create in the root folder.</param>
     /// <exception cref="InvalidOperationException">
     ///   Thrown when WSL is not available or no distribution is installed.
     /// </exception>
     /// <exception cref="IOException">
     ///   Thrown when DiskPart or mkfs.ext4 fails.
     /// </exception>
-    public void Format(int diskNumber, string label = "")
+    public void Format(int diskNumber, string label = "", string? dummyFileName = null)
     {
         if (label.Length > 16)
             label = label[..16];
@@ -98,9 +99,9 @@ public class Ext4Formatter
             UnmountDiskFromWsl(diskNumber);
         }
 
-        // ── 8. Verify with SharpExt4 ──────────────────────────────────────
+        // ── 8. Verify with SharpExt4 and optionally create a dummy file ──
         _log("Verifying filesystem with SharpExt4...");
-        VerifyWithSharpExt4(diskNumber);
+        VerifyWithSharpExt4(diskNumber, dummyFileName);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -219,7 +220,7 @@ public class Ext4Formatter
     // Step 8: Verify with SharpExt4
     // ──────────────────────────────────────────────────────────────────────
 
-    private void VerifyWithSharpExt4(int diskNumber)
+    private void VerifyWithSharpExt4(int diskNumber, string? dummyFileName = null)
     {
         try
         {
@@ -231,13 +232,45 @@ public class Ext4Formatter
             }
 
             using var fs = SharpExt4.ExtFileSystem.Open(disk, disk.Partitions[0]);
+            if (!string.IsNullOrWhiteSpace(dummyFileName))
+            {
+                try
+                {
+                    CreateDummyTextFile(fs, diskNumber, dummyFileName);
+                }
+                catch (Exception ex)
+                {
+                    throw new IOException("The ext4 filesystem was reopened, but creating the requested dummy text file failed.", ex);
+                }
+            }
+
             _log($"Verification OK – ext4 volume mounted. Label: \"{fs.VolumeLabel}\"");
         }
         catch (Exception ex)
         {
+            if (!string.IsNullOrWhiteSpace(dummyFileName))
+            {
+                throw new IOException("The ext4 filesystem was created, but SharpExt4 could not reopen the new volume.", ex);
+            }
+
             // Verification is a best-effort check; the format itself may still have succeeded
             _log($"Note: SharpExt4 verification skipped: {ex.Message}");
         }
+    }
+
+    private void CreateDummyTextFile(SharpExt4.ExtFileSystem fs, int diskNumber, string dummyFileName)
+    {
+        string path = $"/{dummyFileName}";
+        string contents =
+            "This is a dummy text file created by Ext4DiskFormatter." + Environment.NewLine +
+            $"Disk: PhysicalDrive{diskNumber}" + Environment.NewLine +
+            $"Created: {DateTimeOffset.UtcNow:O}" + Environment.NewLine;
+
+        byte[] bytes = Encoding.UTF8.GetBytes(contents);
+        using var file = fs.OpenFile(path, FileMode.Create, FileAccess.Write);
+        file.Write(bytes, 0, bytes.Length);
+
+        _log($"Created dummy text file at {path}.");
     }
 
     // ──────────────────────────────────────────────────────────────────────

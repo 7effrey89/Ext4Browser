@@ -11,6 +11,7 @@ Built on top of the [SharpExt4](https://github.com/nickdu088/SharpExt4) library 
 - 🔍 **Automatically detects** all removable/USB drives via WMI
 - ⚠️ **Safety confirmation** – requires you to type `YES` before erasing any data
 - 🏷️ **Optional volume label** (up to 16 characters, per ext4 spec)
+- 📄 **Optional dummy text file creation** in the root of the formatted ext4 volume
 - ✅ **Post-format verification** using SharpExt4 to confirm the filesystem was created correctly
 - 🖥️ Clean, colour-coded console UI
 
@@ -99,6 +100,9 @@ All data on the selected drive will be PERMANENTLY ERASED.
 Type  YES  (all caps) to confirm: YES
 
 Volume label (max 16 chars, press Enter to skip): myusb
+Create a dummy text file after formatting? (y/N): y
+Dummy file name (default: dummy.txt): hello.txt
+Dummy file will be created as: /hello.txt
 
 Formatting PhysicalDrive1 as ext4...
 ──────────────────────────────────────────────────
@@ -111,11 +115,13 @@ Formatting PhysicalDrive1 as ext4...
   >> ext4 filesystem created successfully.
   >> Detaching disk from WSL...
   >> Verifying filesystem with SharpExt4...
+  >> Created dummy text file at /hello.txt.
   >> Verification OK – ext4 volume mounted. Label: "myusb"
 ──────────────────────────────────────────────────
 
 ✔  Formatting completed successfully!
    PhysicalDrive1 (SanDisk Ultra USB 3.0) is now formatted as ext4.
+   Dummy file created at /hello.txt.
 ```
 
 ---
@@ -138,7 +144,7 @@ Formatting PhysicalDrive1 as ext4...
 5. **WSL unmount** – Detaches the disk from WSL with
    `wsl --unmount \\.\PhysicalDriveN`
 
-6. **Verification** – Uses the [SharpExt4](https://github.com/nickdu088/SharpExt4) library to open and mount the newly created partition, confirming that the ext4 filesystem is readable.
+6. **Verification + dummy file creation** – Uses the [SharpExt4](https://github.com/nickdu088/SharpExt4) library to open and mount the newly created partition, confirm that the ext4 filesystem is readable, and optionally create a text file in the root of the formatted drive.
 
 ---
 
