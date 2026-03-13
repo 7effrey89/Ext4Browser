@@ -4,6 +4,38 @@ namespace Ext4DiskFormatter.Services;
 
 internal static class NonAdminRawVolumeProbe
 {
+    public static bool TryGetBrowsableMountedVolumeRoot(PhysicalDisk disk, out string? volumeRoot, out string? reason)
+    {
+        foreach (string root in disk.MountedVolumeRoots)
+        {
+            string devicePath = ToRawVolumeDevicePath(root);
+
+            try
+            {
+                using var stream = File.Open(devicePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                byte[] buffer = new byte[512];
+                int bytesRead = stream.Read(buffer, 0, buffer.Length);
+
+                if (bytesRead > 0)
+                {
+                    volumeRoot = root;
+                    reason = null;
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                reason = $"{devicePath}: {ex.Message}";
+            }
+        }
+
+        volumeRoot = null;
+        reason = disk.MountedVolumeRoots.Count == 0
+            ? $"PhysicalDrive{disk.DiskNumber} has no mounted Windows volume path."
+            : "No mounted raw volume could be opened for read access in this session.";
+        return false;
+    }
+
     public static string ExplainBrowseLimitation(PhysicalDisk disk)
     {
         if (disk.MountedVolumeRoots.Count == 0)
@@ -42,7 +74,7 @@ internal static class NonAdminRawVolumeProbe
                $"but none could be opened for raw reads in this session. Details: {string.Join("; ", diagnostics)}";
     }
 
-    private static string ToRawVolumeDevicePath(string root)
+    public static string ToRawVolumeDevicePath(string root)
     {
         string trimmed = root.TrimEnd('\\');
         return trimmed.EndsWith(":", StringComparison.Ordinal)

@@ -25,8 +25,8 @@ internal class Program
         if (!isAdministrator)
         {
             WriteWarning(
-                "Running without administrator privileges. The app will probe whether mounted raw volumes are readable, " +
-                "but raw PhysicalDrive access remains unavailable in this session.");
+                "Running without administrator privileges. The app will use DiscUtils on mounted raw volumes for read-only browsing where possible, " +
+                "but file creation still requires elevation because the DiscUtils ext backend is read-only.");
             Console.WriteLine();
         }
 
@@ -79,6 +79,10 @@ internal class Program
 
                     case DriveAction.CreateTextFile:
                         TryCreateTextFile(selected, isAdministrator);
+                        break;
+
+                    case DriveAction.ExportFile:
+                        TryExportFileToTemp(selected, isAdministrator);
                         break;
 
                     case DriveAction.Cancel:
@@ -139,6 +143,9 @@ internal class Program
 
         if (!isAdministrator)
         {
+            if (TryListMountedVolumeContents(disk, path, recursive))
+                return;
+
             string message = NonAdminRawVolumeProbe.ExplainBrowseLimitation(disk);
             WriteError($"Unable to list contents without administrator privileges: {message}");
             return;
@@ -148,10 +155,18 @@ internal class Program
         try
         {
             browser.ListContents(disk.DiskNumber, path, recursive);
+            return;
         }
         catch (Exception ex)
         {
             AppLogger.Error($"Listing failed for PhysicalDrive{disk.DiskNumber}.", ex);
+
+            if (TryListMountedVolumeContents(disk, path, recursive))
+            {
+                WriteWarning("SharpExt4 listing failed; showing mounted-volume contents via DiscUtils instead.");
+                return;
+            }
+
             WriteError($"Unable to list contents: {ex.Message}");
             PrintLogFileHint();
         }
@@ -178,8 +193,9 @@ internal class Program
 
         if (!isAdministrator)
         {
-            string message = NonAdminRawVolumeProbe.ExplainBrowseLimitation(disk);
-            WriteError($"Unable to create files without administrator privileges: {message}");
+            WriteError(
+                "Unable to create files without administrator privileges. " +
+                "Browsing can use DiscUtils on the mounted raw volume, but DiscUtils.Ext is read-only and file creation still requires SharpExt4 raw disk access.");
             return;
         }
 
@@ -196,12 +212,107 @@ internal class Program
         }
     }
 
+    private static void TryExportFileToTemp(PhysicalDisk disk, bool isAdministrator)
+    {
+        Console.Write("\nFile path to copy from ext volume (default: /copilot.txt): ");
+        string sourcePath = Console.ReadLine() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(sourcePath))
+            sourcePath = "/copilot.txt";
+
+        string defaultDestination = BuildDefaultTempDestinationPath(sourcePath);
+        Console.Write($"Destination on Windows (default: {defaultDestination}): ");
+        string destinationPath = Console.ReadLine() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(destinationPath))
+            destinationPath = defaultDestination;
+
+        Console.WriteLine();
+
+        try
+        {
+            if (!isAdministrator && TryExportMountedVolumeFile(disk, sourcePath, destinationPath))
+                return;
+
+            var browser = new Ext4VolumeBrowser();
+            browser.ExportFileToWindowsPath(disk.DiskNumber, sourcePath, destinationPath);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"Export file failed for PhysicalDrive{disk.DiskNumber}.", ex);
+            WriteError($"Unable to export file: {ex.Message}");
+            PrintLogFileHint();
+        }
+    }
+
+    private static bool TryListMountedVolumeContents(PhysicalDisk disk, string path, bool recursive)
+    {
+        if (!NonAdminRawVolumeProbe.TryGetBrowsableMountedVolumeRoot(disk, out string? volumeRoot, out string? reason))
+            return false;
+
+        var browser = new DiscUtilsVolumeBrowser();
+        try
+        {
+            browser.ListContents(volumeRoot!, path, recursive);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"DiscUtils listing failed for mounted volume {volumeRoot}.", ex);
+            if (!string.IsNullOrWhiteSpace(reason))
+                AppLogger.Warning($"Mounted volume probe context for PhysicalDrive{disk.DiskNumber}: {reason}");
+
+            if (IsAdministrator())
+                AppLogger.Warning($"Falling back to SharpExt4 raw physical drive access for PhysicalDrive{disk.DiskNumber} after DiscUtils failure.");
+            else
+            {
+                WriteError($"Unable to list contents via mounted volume {volumeRoot}: {ex.Message}");
+                PrintLogFileHint();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryExportMountedVolumeFile(PhysicalDisk disk, string sourcePath, string destinationPath)
+    {
+        if (!NonAdminRawVolumeProbe.TryGetBrowsableMountedVolumeRoot(disk, out string? volumeRoot, out string? reason))
+        {
+            WriteError($"Unable to export file without administrator privileges: {reason}");
+            return true;
+        }
+
+        var browser = new DiscUtilsVolumeBrowser();
+        try
+        {
+            browser.ExportFileToWindowsPath(volumeRoot!, sourcePath, destinationPath);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"DiscUtils export failed for mounted volume {volumeRoot}.", ex);
+            WriteError($"Unable to export file via mounted volume {volumeRoot}: {ex.Message}");
+            PrintLogFileHint();
+            return true;
+        }
+    }
+
+    private static string BuildDefaultTempDestinationPath(string sourcePath)
+    {
+        string normalizedSourcePath = sourcePath.Replace('/', Path.DirectorySeparatorChar).Trim();
+        string fileName = Path.GetFileName(normalizedSourcePath);
+        if (string.IsNullOrWhiteSpace(fileName))
+            fileName = "copied-from-ext.bin";
+
+        return Path.Combine(@"C:\temp", fileName);
+    }
+
     private static DriveAction PromptForDriveAction()
     {
         Console.WriteLine();
         Console.WriteLine("Choose an action for the selected drive:");
         Console.WriteLine("  [L] List folders/files");
         Console.WriteLine("  [C] Create text file");
+        Console.WriteLine("  [E] Export file to C:\\temp");
         Console.WriteLine("  [0] Back to drive list");
         Console.Write("Enter choice: ");
 
@@ -210,6 +321,7 @@ internal class Program
         {
             "L" => DriveAction.ListContents,
             "C" => DriveAction.CreateTextFile,
+            "E" => DriveAction.ExportFile,
             "0" => DriveAction.Cancel,
             _ => DriveAction.Invalid,
         };
@@ -287,6 +399,7 @@ internal class Program
         Invalid,
         ListContents,
         CreateTextFile,
+        ExportFile,
         Cancel,
     }
 }

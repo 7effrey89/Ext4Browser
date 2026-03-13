@@ -2,7 +2,7 @@
 
 A Windows C# console application that inspects **Linux ext2/ext3/ext4 volumes** from Windows.
 
-It is built on top of the [SharpExt4](https://github.com/nickdu088/SharpExt4) library by nickdu088, which provides read/write access to Linux ext filesystems from Windows .NET applications.
+It uses [DiscUtils.Ext](https://www.nuget.org/packages/DiscUtils.Ext) for mounted-volume browsing and [SharpExt4](https://github.com/nickdu088/SharpExt4) as the raw physical-drive write path plus the preferred browse path when administrator raw-disk access is available.
 
 ---
 
@@ -10,9 +10,11 @@ It is built on top of the [SharpExt4](https://github.com/nickdu088/SharpExt4) li
 
 - 🔍 **Automatically detects** all removable/USB drives via WMI
 - 📂 **Lists folders and files** on an ext2/ext3/ext4 drive
-- ✍️ **Creates text files** on an ext2/ext3/ext4 drive
+- ✍️ **Creates text files** on an ext2/ext3/ext4 drive when raw disk access is available
+- 📤 **Copies files back to `C:\temp`** from the ext volume
 - 📄 **Shows file details** including size, timestamps, and permissions
 - ✅ **Persistent diagnostic logging** for browse failures and SharpExt4 reopen problems
+- 🔓 **Read-only browsing without admin** when Windows exposes the ext volume as a mounted raw device like `\\.\\D:`
 - 🖥️ Clean, colour-coded console UI
 
 ---
@@ -23,7 +25,7 @@ It is built on top of the [SharpExt4](https://github.com/nickdu088/SharpExt4) li
 |---|---|
 | **OS** | Windows 10 / Windows 11 |
 | **Drive type** | A removable or external physical disk that SharpExt4 can open directly from Windows. |
-| **Privileges** | Must be run as **Administrator** |
+| **Privileges** | Read-only browsing can work without admin when Windows exposes a mounted raw volume handle. Administrator is still required for writes, because the DiscUtils ext backend is read-only and file creation uses raw `PhysicalDriveN` access through SharpExt4. |
 | **.NET runtime** | .NET 8 (x64) |
 
 ---
@@ -82,6 +84,7 @@ Enter the number of the drive to inspect (0 to cancel): 1
 Choose an action for the selected drive:
    [L] List folders/files
    [C] Create text file
+   [E] Export file to C:\temp
    [0] Back to drive list
 Enter choice: C
 
@@ -109,6 +112,18 @@ Contents of / on PhysicalDrive1:
    /hello.txt | 118.00 B | modified 2026-03-13 17:35:42
 
 Summary: 2 directories, 1 file.
+
+Choose an action for the selected drive:
+   [L] List folders/files
+   [C] Create text file
+   [E] Export file to C:\temp
+   [0] Back to drive list
+Enter choice: E
+
+File path to copy from ext volume (default: /copilot.txt): /copilot.txt
+Destination on Windows (default: C:\temp\copilot.txt):
+
+Copied /copilot.txt to C:\temp\copilot.txt.
 ```
 
 ---
@@ -144,6 +159,23 @@ If every partition probe still fails with `Could not mount partition`, the most 
 - the selected partition is not actually ext2/ext3/ext4
 - the filesystem is damaged
 - the filesystem uses ext4 features that the bundled SharpExt4 build does not support
+
+## Notes On Console Messages
+
+During file creation you may see messages like these more than once:
+
+```text
+Opening PhysicalDrive1 with SharpExt4 (attempt 1/5)...
+SharpExt4 returned invalid partition metadata; using Windows partition layout as a fallback.
+```
+
+This is expected for some drives and does not mean the write failed.
+
+- `Opening PhysicalDrive... (attempt 1/5)` means the app is using the retry-capable disk-open helper. It is just the first allowed attempt, not an error by itself.
+- `using Windows partition layout as a fallback` means SharpExt4 opened the disk, but reported invalid partition metadata for that device. The app repairs that by reading the partition layout from Windows/WMI and continuing.
+- These lines can appear twice during file creation because the app opens the disk once to write the file and a second time to reopen the filesystem and verify that the file contents were written correctly.
+
+If the operation succeeds afterward with output like `Created text file at /copilot.txt (...)`, the repeated SharpExt4 messages were informational only.
 
 ---
 

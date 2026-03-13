@@ -12,6 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="DiscUtils.Ext" Version="0.16.13" />
     <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>
 
