@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ext4DiskFormatter", "Ext4DiskFormatter\Ext4DiskFormatter.csproj", "{B9BB5A3B-EEAE-059E-2CCF-D3C75447D890}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ext4DiskFormatter.Tests", "Ext4DiskFormatter.Tests\Ext4DiskFormatter.Tests.csproj", "{5E6D4174-1458-4514-90F5-A32D44D03B26}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B9BB5A3B-EEAE-059E-2CCF-D3C75447D890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B9BB5A3B-EEAE-059E-2CCF-D3C75447D890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B9BB5A3B-EEAE-059E-2CCF-D3C75447D890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B9BB5A3B-EEAE-059E-2CCF-D3C75447D890}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5E6D4174-1458-4514-90F5-A32D44D03B26}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5E6D4174-1458-4514-90F5-A32D44D03B26}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5E6D4174-1458-4514-90F5-A32D44D03B26}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5E6D4174-1458-4514-90F5-A32D44D03B26}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F018EAFD-745A-4A5B-843D-6E2569D00082}
+	EndGlobalSection
+EndGlobal

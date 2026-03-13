@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <Platforms>x64</Platforms>
+    <RootNamespace>Ext4DiskFormatter</RootNamespace>
+    <AssemblyName>Ext4DiskFormatter</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DiscUtils.Ext" Version="0.16.13" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- SharpExt4 DLL references (x64, pre-built from https://github.com/nickdu088/SharpExt4) -->
+  <ItemGroup>
+    <Reference Include="SharpExt4">
+      <HintPath>lib\SharpExt4.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="DiskPartitionInfo">
+      <HintPath>lib\DiskPartitionInfo.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Copy required native DLLs to output directory -->
+  <ItemGroup>
+    <Content Include="lib\SharpExt4.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="lib\DiskPartitionInfo.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Ijwhost.dll: C++/CLI IJW hosting runtime – must live beside the executable -->
+    <Content Include="lib\Ijwhost.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>Ijwhost.dll</TargetPath>
+    </Content>
+  </ItemGroup>
+
+</Project>

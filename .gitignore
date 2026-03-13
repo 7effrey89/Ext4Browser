@@ -1,0 +1,16 @@
+# Build artifacts
+**/bin/
+**/obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# NuGet packages (should not be committed)
+packages/
+
+# OS generated files
+.DS_Store
+Thumbs.db
