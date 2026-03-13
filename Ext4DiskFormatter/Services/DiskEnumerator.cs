@@ -36,6 +36,7 @@ public static class DiskEnumerator
                 SizeBytes  = ulong.TryParse(drive["Size"]?.ToString(), out ulong sz) ? sz : 0,
                 Status     = drive["Status"]?.ToString() ?? "Unknown",
                 MediaType  = drive["MediaType"]?.ToString() ?? "Unknown",
+                MountedVolumeRoots = GetMountedVolumeRoots(drive),
             };
             disks.Add(disk);
         }
@@ -51,5 +52,30 @@ public static class DiskEnumerator
         if (deviceId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             return int.TryParse(deviceId[prefix.Length..], out number);
         return false;
+    }
+
+    private static List<string> GetMountedVolumeRoots(ManagementObject drive)
+    {
+        var roots = new List<string>();
+
+        foreach (ManagementObject partition in drive.GetRelated("Win32_DiskPartition"))
+        {
+            foreach (ManagementObject logicalDisk in partition.GetRelated("Win32_LogicalDisk"))
+            {
+                string? deviceId = logicalDisk["DeviceID"]?.ToString();
+                if (string.IsNullOrWhiteSpace(deviceId))
+                    continue;
+
+                string root = deviceId.EndsWith(":", StringComparison.Ordinal)
+                    ? deviceId + "\\"
+                    : deviceId;
+
+                if (!roots.Contains(root, StringComparer.OrdinalIgnoreCase))
+                    roots.Add(root);
+            }
+        }
+
+        roots.Sort(StringComparer.OrdinalIgnoreCase);
+        return roots;
     }
 }

@@ -20,6 +20,18 @@ public class PhysicalDisk
     /// <summary>Media type (e.g., "Removable Media", "External hard disk media").</summary>
     public string MediaType { get; set; } = string.Empty;
 
+    /// <summary>Mounted Windows volume roots associated with this disk (for example, D:\).</summary>
+    public List<string> MountedVolumeRoots { get; set; } = [];
+
+    /// <summary>Human-readable mounted volume summary.</summary>
+    public string MountedVolumeSummary =>
+        MountedVolumeRoots.Count == 0
+            ? "none"
+            : string.Join(", ", MountedVolumeRoots);
+
+
+
+
     /// <summary>Human-readable size string (e.g., "7.45 GB").</summary>
     public string FormattedSize => FormatBytes(SizeBytes);
 

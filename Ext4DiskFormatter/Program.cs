@@ -5,16 +5,8 @@ using System.Security.Principal;
 namespace Ext4DiskFormatter;
 
 /// <summary>
-/// Entry point for Ext4DiskFormatter – a Windows console application that formats
-/// a USB drive (or any removable disk) to the Linux ext4 filesystem.
-///
-/// Prerequisites:
-///   • Run as Administrator.
-///   • WSL 2 enabled with a distribution that has e2fsprogs installed
-///     (e.g., Ubuntu:  sudo apt-get install -y e2fsprogs).
-///
-/// Based on the SharpExt4 library:
-///   https://github.com/nickdu088/SharpExt4
+/// Entry point for Ext4DiskFormatter – a Windows console application that
+/// inspects ext2/ext3/ext4 filesystems on removable or external disks.
 /// </summary>
 internal class Program
 {
@@ -23,163 +15,94 @@ internal class Program
     static int Main(string[] args)
     {
         Console.Title = AppTitle;
+        string logFilePath = AppLogger.Initialize();
+        RegisterGlobalExceptionLogging();
         PrintBanner();
-
-        // ── Admin check ──────────────────────────────────────────────────
-        if (!IsAdministrator())
-        {
-            WriteError(
-                "This application requires administrator privileges.\n" +
-                "Please right-click the executable and choose 'Run as administrator'.");
-            return ExitCode.NotAdmin;
-        }
-
-        // ── Enumerate removable drives via WMI ───────────────────────────
-        Console.WriteLine("Scanning for removable drives...\n");
-        List<PhysicalDisk> disks;
-        try
-        {
-            disks = DiskEnumerator.GetRemovableDisks();
-        }
-        catch (Exception ex)
-        {
-            WriteError($"Failed to enumerate disks: {ex.Message}");
-            return ExitCode.EnumerationFailed;
-        }
-
-        if (disks.Count == 0)
-        {
-            Console.WriteLine("No removable drives found. Connect a USB drive and try again.");
-            return ExitCode.NoDrivesFound;
-        }
-
-        // ── Present drive list ───────────────────────────────────────────
-        PrintDriveList(disks);
-
-        // ── Drive selection ──────────────────────────────────────────────
-        Console.Write("Enter the number of the drive to format (0 to cancel): ");
-        if (!int.TryParse(Console.ReadLine(), out int choice) ||
-            choice < 0 || choice > disks.Count)
-        {
-            Console.WriteLine("\nInvalid selection. Exiting.");
-            return ExitCode.InvalidSelection;
-        }
-
-        if (choice == 0)
-        {
-            Console.WriteLine("\nOperation cancelled.");
-            return ExitCode.Cancelled;
-        }
-
-        PhysicalDisk selected = disks[choice - 1];
-
-        // ── Confirmation ─────────────────────────────────────────────────
+        Console.WriteLine($"Log file: {logFilePath}");
         Console.WriteLine();
-        WriteWarning("⚠  WARNING  ⚠");
-        WriteWarning("All data on the selected drive will be PERMANENTLY ERASED.");
-        Console.WriteLine();
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine($"   Drive  : {selected.Model}");
-        Console.WriteLine($"   Disk # : PhysicalDrive{selected.DiskNumber}");
-        Console.WriteLine($"   Size   : {selected.FormattedSize}");
-        Console.ResetColor();
-        Console.WriteLine();
-        Console.Write("Type  YES  (all caps) to confirm: ");
 
-        string confirmation = Console.ReadLine() ?? string.Empty;
-        if (confirmation != "YES")
+        bool isAdministrator = IsAdministrator();
+        if (!isAdministrator)
         {
-            Console.WriteLine("\nOperation cancelled.");
-            return ExitCode.Cancelled;
+            WriteWarning(
+                "Running without administrator privileges. The app will probe whether mounted raw volumes are readable, " +
+                "but raw PhysicalDrive access remains unavailable in this session.");
+            Console.WriteLine();
         }
 
-        // ── Optional volume label ────────────────────────────────────────
-        Console.Write("\nVolume label (max 16 chars, press Enter to skip): ");
-        string label = (Console.ReadLine() ?? string.Empty).Trim();
-        if (label.Length > 16)
+        while (true)
         {
-            label = label[..16];
-            Console.WriteLine($"Label truncated to: {label}");
-        }
+            Console.WriteLine("Scanning for removable drives...\n");
 
-        // ── Optional dummy text file ─────────────────────────────────────
-        Console.Write("Create a dummy text file after formatting? (y/N): ");
-        bool createDummyFile = string.Equals(Console.ReadLine()?.Trim(), "y", StringComparison.OrdinalIgnoreCase);
-
-        string? dummyFileName = null;
-        if (createDummyFile)
-        {
-            Console.Write("Dummy file name (default: dummy.txt): ");
-            if (!TryNormalizeDummyFileName(Console.ReadLine(), out dummyFileName, out string? dummyFileError))
+            List<PhysicalDisk> disks;
+            try
             {
-                WriteError(dummyFileError ?? "Invalid dummy file name.");
+                disks = DiskEnumerator.GetRemovableDisks();
+            }
+            catch (Exception ex)
+            {
+                WriteError($"Failed to enumerate disks: {ex.Message}");
+                return ExitCode.EnumerationFailed;
+            }
+
+            if (disks.Count == 0)
+            {
+                Console.WriteLine("No removable drives found. Connect a drive and try again.");
+                return ExitCode.NoDrivesFound;
+            }
+
+            PrintDriveList(disks);
+
+            Console.Write("Enter the number of the drive to inspect (0 to cancel): ");
+            if (!int.TryParse(Console.ReadLine(), out int choice) ||
+                choice < 0 || choice > disks.Count)
+            {
+                Console.WriteLine("\nInvalid selection. Exiting.");
                 return ExitCode.InvalidSelection;
             }
 
-            Console.WriteLine($"Dummy file will be created as: /{dummyFileName}");
-        }
+            if (choice == 0)
+            {
+                Console.WriteLine("\nOperation cancelled.");
+                return ExitCode.Cancelled;
+            }
 
-        // ── Format ───────────────────────────────────────────────────────
-        Console.WriteLine();
-        Console.WriteLine($"Formatting PhysicalDrive{selected.DiskNumber} as ext4...");
-        Console.WriteLine(new string('─', 50));
+            PhysicalDisk selected = disks[choice - 1];
 
-        var formatter = new Ext4Formatter(msg =>
-        {
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.Write("  >> ");
-            Console.ResetColor();
-            Console.WriteLine(msg);
-        });
+            while (true)
+            {
+                switch (PromptForDriveAction())
+                {
+                    case DriveAction.ListContents:
+                        TryListDriveContents(selected, isAdministrator);
+                        break;
 
-        try
-        {
-            formatter.Format(selected.DiskNumber, label, dummyFileName);
-        }
-        catch (InvalidOperationException ex)
-        {
-            // Pre-flight failures (WSL missing, etc.)
+                    case DriveAction.CreateTextFile:
+                        TryCreateTextFile(selected, isAdministrator);
+                        break;
+
+                    case DriveAction.Cancel:
+                        if (!PromptToReturnToDriveList())
+                            return ExitCode.Success;
+
+                        goto ContinueMainMenu;
+
+                    default:
+                        Console.WriteLine("\nInvalid selection. Exiting.");
+                        return ExitCode.InvalidSelection;
+                }
+            }
+
+        ContinueMainMenu:
             Console.WriteLine();
-            WriteError(ex.Message);
-            return ExitCode.FormatFailed;
         }
-        catch (IOException ex)
-        {
-            Console.WriteLine();
-            WriteError($"Format failed: {ex.Message}");
-            return ExitCode.FormatFailed;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine();
-            WriteError($"Unexpected error: {ex}");
-            return ExitCode.FormatFailed;
-        }
-
-        Console.WriteLine(new string('─', 50));
-        Console.WriteLine();
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("✔  Formatting completed successfully!");
-        Console.ResetColor();
-        Console.WriteLine($"   PhysicalDrive{selected.DiskNumber} ({selected.Model}) is now formatted as ext4.");
-        if (createDummyFile)
-        {
-            Console.WriteLine($"   Dummy file created at /{dummyFileName}.");
-        }
-        Console.WriteLine();
-
-        return ExitCode.Success;
     }
-
-    // ──────────────────────────────────────────────────────────────────────
-    // Helpers
-    // ──────────────────────────────────────────────────────────────────────
 
     private static void PrintBanner()
     {
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("╔════════════════════════════════════════════════════╗");
-        Console.WriteLine("║          Ext4DiskFormatter  (USB → ext4)           ║");
+        Console.WriteLine("║      Ext4DiskFormatter  (ext volume browser)      ║");
         Console.WriteLine("║  Based on SharpExt4 by nickdu088                  ║");
         Console.WriteLine("║  https://github.com/nickdu088/SharpExt4            ║");
         Console.WriteLine("╚════════════════════════════════════════════════════╝");
@@ -192,14 +115,117 @@ internal class Program
         Console.WriteLine($"Found {disks.Count} removable drive(s):\n");
         for (int i = 0; i < disks.Count; i++)
         {
-            PhysicalDisk d = disks[i];
+            PhysicalDisk disk = disks[i];
             Console.ForegroundColor = ConsoleColor.White;
             Console.Write($"  [{i + 1}] ");
             Console.ResetColor();
-            Console.WriteLine(d.Model);
-            Console.WriteLine($"       PhysicalDrive{d.DiskNumber} | {d.FormattedSize} | {d.Status}");
+            Console.WriteLine(disk.Model);
+            Console.WriteLine($"       PhysicalDrive{disk.DiskNumber} | {disk.FormattedSize} | {disk.Status} | {disk.MediaType}");
+            Console.WriteLine($"       Mounted volumes: {disk.MountedVolumeSummary}");
             Console.WriteLine();
         }
+    }
+
+    private static void TryListDriveContents(PhysicalDisk disk, bool isAdministrator)
+    {
+        Console.Write("\nPath to inspect (default: /): ");
+        string path = Console.ReadLine() ?? string.Empty;
+
+        Console.Write("List recursively? (Y/n): ");
+        string recursiveChoice = (Console.ReadLine() ?? string.Empty).Trim();
+        bool recursive = !string.Equals(recursiveChoice, "n", StringComparison.OrdinalIgnoreCase);
+
+        Console.WriteLine();
+
+        if (!isAdministrator)
+        {
+            string message = NonAdminRawVolumeProbe.ExplainBrowseLimitation(disk);
+            WriteError($"Unable to list contents without administrator privileges: {message}");
+            return;
+        }
+
+        var browser = new Ext4VolumeBrowser();
+        try
+        {
+            browser.ListContents(disk.DiskNumber, path, recursive);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"Listing failed for PhysicalDrive{disk.DiskNumber}.", ex);
+            WriteError($"Unable to list contents: {ex.Message}");
+            PrintLogFileHint();
+        }
+    }
+
+    private static void TryCreateTextFile(PhysicalDisk disk, bool isAdministrator)
+    {
+        Console.Write("\nFile path to create (default: /copilot.txt): ");
+        string path = Console.ReadLine() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(path))
+            path = "/copilot.txt";
+
+        Console.Write("File contents (press Enter for default): ");
+        string contents = Console.ReadLine() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(contents))
+        {
+            contents =
+                "Created by Ext4DiskFormatter." + Environment.NewLine +
+                $"Disk: PhysicalDrive{disk.DiskNumber}" + Environment.NewLine +
+                $"Created: {DateTimeOffset.UtcNow:O}" + Environment.NewLine;
+        }
+
+        Console.WriteLine();
+
+        if (!isAdministrator)
+        {
+            string message = NonAdminRawVolumeProbe.ExplainBrowseLimitation(disk);
+            WriteError($"Unable to create files without administrator privileges: {message}");
+            return;
+        }
+
+        var browser = new Ext4VolumeBrowser();
+        try
+        {
+            browser.CreateTextFile(disk.DiskNumber, path, contents);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"Create text file failed for PhysicalDrive{disk.DiskNumber}.", ex);
+            WriteError($"Unable to create file: {ex.Message}");
+            PrintLogFileHint();
+        }
+    }
+
+    private static DriveAction PromptForDriveAction()
+    {
+        Console.WriteLine();
+        Console.WriteLine("Choose an action for the selected drive:");
+        Console.WriteLine("  [L] List folders/files");
+        Console.WriteLine("  [C] Create text file");
+        Console.WriteLine("  [0] Back to drive list");
+        Console.Write("Enter choice: ");
+
+        string action = (Console.ReadLine() ?? string.Empty).Trim();
+        return action.ToUpperInvariant() switch
+        {
+            "L" => DriveAction.ListContents,
+            "C" => DriveAction.CreateTextFile,
+            "0" => DriveAction.Cancel,
+            _ => DriveAction.Invalid,
+        };
+    }
+
+    private static bool PromptToReturnToDriveList()
+    {
+        Console.WriteLine();
+        Console.WriteLine("Press Enter to return to the drive list, or type X to exit.");
+        string response = (Console.ReadLine() ?? string.Empty).Trim();
+        return !string.Equals(response, "x", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void PrintLogFileHint()
+    {
+        Console.WriteLine($"See log for details: {AppLogger.GetLogFilePath()}");
     }
 
     private static void WriteError(string message)
@@ -207,6 +233,7 @@ internal class Program
         Console.ForegroundColor = ConsoleColor.Red;
         Console.Error.WriteLine($"ERROR: {message}");
         Console.ResetColor();
+        AppLogger.Error(message);
     }
 
     private static void WriteWarning(string message)
@@ -214,39 +241,7 @@ internal class Program
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine(message);
         Console.ResetColor();
-    }
-
-    private static bool TryNormalizeDummyFileName(string? fileName, out string normalized, out string? error)
-    {
-        error = null;
-        normalized = (fileName ?? string.Empty).Trim();
-
-        if (string.IsNullOrWhiteSpace(normalized))
-        {
-            normalized = "dummy.txt";
-            return true;
-        }
-
-        if (normalized.Contains('/') || normalized.Contains('\\'))
-        {
-            error = "Dummy file name must not include folders or path separators.";
-            return false;
-        }
-
-        if (normalized.Contains('\0'))
-        {
-            error = "Dummy file name contains an invalid null character.";
-            return false;
-        }
-
-        if (!string.Equals(Path.GetExtension(normalized), ".txt", StringComparison.OrdinalIgnoreCase))
-        {
-            normalized = Path.HasExtension(normalized)
-                ? Path.ChangeExtension(normalized, ".txt")
-                : normalized + ".txt";
-        }
-
-        return true;
+        AppLogger.Warning(message);
     }
 
     private static bool IsAdministrator()
@@ -256,17 +251,42 @@ internal class Program
         return principal.IsInRole(WindowsBuiltInRole.Administrator);
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // Exit codes
-    // ──────────────────────────────────────────────────────────────────────
+    private static void RegisterGlobalExceptionLogging()
+    {
+        AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
+        {
+            if (eventArgs.ExceptionObject is Exception ex)
+            {
+                AppLogger.Error("Unhandled application exception.", ex);
+            }
+            else
+            {
+                AppLogger.Error($"Unhandled non-exception object: {eventArgs.ExceptionObject}");
+            }
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
+        {
+            AppLogger.Error("Unobserved task exception.", eventArgs.Exception);
+            eventArgs.SetObserved();
+        };
+    }
+
     private static class ExitCode
     {
-        public const int Success          =  0;
-        public const int NotAdmin         =  1;
-        public const int EnumerationFailed =  2;
-        public const int NoDrivesFound    =  3;
-        public const int InvalidSelection =  4;
-        public const int Cancelled        =  5;
-        public const int FormatFailed     = 10;
+        public const int Success = 0;
+        public const int NotAdmin = 1;
+        public const int EnumerationFailed = 2;
+        public const int NoDrivesFound = 3;
+        public const int InvalidSelection = 4;
+        public const int Cancelled = 5;
+    }
+
+    private enum DriveAction
+    {
+        Invalid,
+        ListContents,
+        CreateTextFile,
+        Cancel,
     }
 }

@@ -1,18 +1,18 @@
 # Ext4DiskFormatter
 
-A Windows C# console application that formats a USB drive (or any removable disk) to the **Linux ext4 filesystem**.
+A Windows C# console application that inspects **Linux ext2/ext3/ext4 volumes** from Windows.
 
-Built on top of the [SharpExt4](https://github.com/nickdu088/SharpExt4) library by nickdu088, which provides full read/write access to Linux ext2/ext3/ext4 filesystems from Windows .NET applications.
+It is built on top of the [SharpExt4](https://github.com/nickdu088/SharpExt4) library by nickdu088, which provides read/write access to Linux ext filesystems from Windows .NET applications.
 
 ---
 
 ## Features
 
 - 🔍 **Automatically detects** all removable/USB drives via WMI
-- ⚠️ **Safety confirmation** – requires you to type `YES` before erasing any data
-- 🏷️ **Optional volume label** (up to 16 characters, per ext4 spec)
-- 📄 **Optional dummy text file creation** in the root of the formatted ext4 volume
-- ✅ **Post-format verification** using SharpExt4 to confirm the filesystem was created correctly
+- 📂 **Lists folders and files** on an ext2/ext3/ext4 drive
+- ✍️ **Creates text files** on an ext2/ext3/ext4 drive
+- 📄 **Shows file details** including size, timestamps, and permissions
+- ✅ **Persistent diagnostic logging** for browse failures and SharpExt4 reopen problems
 - 🖥️ Clean, colour-coded console UI
 
 ---
@@ -21,22 +21,10 @@ Built on top of the [SharpExt4](https://github.com/nickdu088/SharpExt4) library 
 
 | Requirement | Details |
 |---|---|
-| **OS** | Windows 10 Build 21364 (21H2) or later / Windows 11 |
-| **WSL 2** | Windows Subsystem for Linux version 2 must be enabled |
-| **Linux distro** | At least one WSL 2 distribution installed (e.g., Ubuntu) |
-| **e2fsprogs** | `mkfs.ext4` must be available in the WSL distribution |
+| **OS** | Windows 10 / Windows 11 |
+| **Drive type** | A removable or external physical disk that SharpExt4 can open directly from Windows. |
 | **Privileges** | Must be run as **Administrator** |
 | **.NET runtime** | .NET 8 (x64) |
-
-### Quick WSL setup (if not already done)
-
-```powershell
-# Install WSL 2 with Ubuntu (run in an elevated PowerShell)
-wsl --install
-
-# After restarting, install e2fsprogs inside Ubuntu:
-wsl -- sudo apt-get update && sudo apt-get install -y e2fsprogs
-```
 
 ---
 
@@ -86,42 +74,41 @@ Scanning for removable drives...
 Found 1 removable drive(s):
 
   [1] SanDisk Ultra USB 3.0
-       PhysicalDrive1 | 14.44 GB | OK
+   PhysicalDrive1 | 14.44 GB | OK | Removable Media
+   Format unavailable: WSL does not support wsl --mount for USB flash drives, removable media, or SD card readers.
 
-Enter the number of the drive to format (0 to cancel): 1
+Enter the number of the drive to inspect (0 to cancel): 1
 
-⚠  WARNING  ⚠
-All data on the selected drive will be PERMANENTLY ERASED.
+Choose an action for the selected drive:
+   [L] List folders/files
+   [C] Create text file
+   [0] Back to drive list
+Enter choice: C
 
-   Drive  : SanDisk Ultra USB 3.0
-   Disk # : PhysicalDrive1
-   Size   : 14.44 GB
+File path to create (default: /copilot.txt): /notes.txt
+File contents (press Enter for default): hello from windows
 
-Type  YES  (all caps) to confirm: YES
+Created text file at /notes.txt (18.00 B).
 
-Volume label (max 16 chars, press Enter to skip): myusb
-Create a dummy text file after formatting? (y/N): y
-Dummy file name (default: dummy.txt): hello.txt
-Dummy file will be created as: /hello.txt
+Choose an action for the selected drive:
+   [L] List folders/files
+   [C] Create text file
+   [0] Back to drive list
+Enter choice: L
 
-Formatting PhysicalDrive1 as ext4...
-──────────────────────────────────────────────────
-  >> Checking WSL availability...
-  >> Initializing disk with DiskPart (clean + MBR + primary partition)...
-  >> Attaching disk 1 to WSL...
-  >> Disk is visible in WSL as /dev/sdb.
-  >> Refreshing partition table in WSL...
-  >> Running mkfs.ext4 on /dev/sdb1...
-  >> ext4 filesystem created successfully.
-  >> Detaching disk from WSL...
-  >> Verifying filesystem with SharpExt4...
-  >> Created dummy text file at /hello.txt.
-  >> Verification OK – ext4 volume mounted. Label: "myusb"
-──────────────────────────────────────────────────
+Path to inspect (default: /): /
+List recursively? (Y/n): Y
 
-✔  Formatting completed successfully!
-   PhysicalDrive1 (SanDisk Ultra USB 3.0) is now formatted as ext4.
-   Dummy file created at /hello.txt.
+Contents of / on PhysicalDrive1:
+
+[Directories]
+   /
+   /lost+found | modified 2026-03-13 17:35:12
+
+[Files]
+   /hello.txt | 118.00 B | modified 2026-03-13 17:35:42
+
+Summary: 2 directories, 1 file.
 ```
 
 ---
@@ -130,21 +117,33 @@ Formatting PhysicalDrive1 as ext4...
 
 1. **Disk detection** – Queries `Win32_DiskDrive` via WMI to find all drives with `MediaType = 'Removable Media'` or `'External hard disk media'`.
 
-2. **DiskPart** – Runs a DiskPart script to:
-   - `clean` – removes all existing partitions and data
-   - `convert mbr` – creates an MBR partition table
-   - `create partition primary` + `set id=83` – creates a single Linux (0x83) partition
+2. **Volume open** – Uses [SharpExt4](https://github.com/nickdu088/SharpExt4) to probe every partition exposed on the selected disk until one mounts successfully.
 
-3. **WSL mount** – Attaches the raw physical disk to WSL 2 using
-   `wsl --mount \\.\PhysicalDriveN --bare`
+3. **Directory and file listing** – Reads directories and files from the ext volume, including file length and timestamps.
 
-4. **mkfs.ext4** – Runs `mkfs.ext4` inside WSL on the first partition
-   (`/dev/sdXN`) to create the ext4 filesystem.
+4. **Diagnostics** – Writes browse and SharpExt4 errors to a log file under `%LocalAppData%\Ext4DiskFormatter\Logs`, including the partition offsets and sizes that were tried.
 
-5. **WSL unmount** – Detaches the disk from WSL with
-   `wsl --unmount \\.\PhysicalDriveN`
+---
 
-6. **Verification + dummy file creation** – Uses the [SharpExt4](https://github.com/nickdu088/SharpExt4) library to open and mount the newly created partition, confirm that the ext4 filesystem is readable, and optionally create a text file in the root of the formatted drive.
+## Integration Testing
+
+The solution includes an opt-in test project for exercising a real removable ext volume.
+
+```powershell
+$env:EXT4_TEST_DISK_NUMBER = 1
+dotnet test Ext4DiskFormatter.sln
+```
+
+The physical-drive tests are skipped unless both conditions are true:
+
+- the test host is running as Administrator
+- `EXT4_TEST_DISK_NUMBER` points at a currently attached removable disk
+
+If every partition probe still fails with `Could not mount partition`, the most likely causes are:
+
+- the selected partition is not actually ext2/ext3/ext4
+- the filesystem is damaged
+- the filesystem uses ext4 features that the bundled SharpExt4 build does not support
 
 ---
 
@@ -158,7 +157,9 @@ Ext4DiskFormatter/
 │   └── PhysicalDisk.cs            # Drive information model
 ├── Services/
 │   ├── DiskEnumerator.cs          # WMI-based drive detection
-│   └── Ext4Formatter.cs           # Core formatting logic
+│   ├── Ext4VolumeBrowser.cs       # ext volume browsing logic
+│   ├── SharpExt4DiskAccessor.cs   # Retried SharpExt4 disk opening
+│   └── AppLogger.cs               # Persistent diagnostic logging
 └── lib/                           # Pre-built SharpExt4 binaries (x64)
     ├── SharpExt4.dll              # SharpExt4 managed/native assembly
     ├── DiskPartitionInfo.dll      # Partition table reader
@@ -179,7 +180,6 @@ The binaries in `lib/` are taken from the [SharpExt4 v0.0.3](https://github.com/
 | 3 | No removable drives found |
 | 4 | Invalid drive selection |
 | 5 | User cancelled |
-| 10 | Formatting failed |
 
 ---
 
